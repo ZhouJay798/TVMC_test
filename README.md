@@ -2,6 +2,8 @@
 
 Python 3.12 本地实验项目，验证任意两方恢复与异常拒绝，输出耗时和证据大小。
 
+详细操作步骤（Windows / macOS / Linux）、结果解读和常见问题见 [本地实验操作说明](docs/LOCAL_EXPERIMENT.md)。
+
 ## 运行
 
 ```bash
