@@ -1,5 +1,6 @@
 """Run: python demo.py [input-file] --output artifacts"""
 import argparse
+import hashlib
 import itertools
 import json
 import time
@@ -14,21 +15,28 @@ def timed(action):
     return result, (time.perf_counter_ns() - start) / 1e6
 
 
-def run(data):
+def run(data, on_recovered=None):
     (package, shares), encryption_ms = timed(lambda: encrypt(data))
     private = {i: scalar() for i in range(1, 6)}
     verifier = Verifier({i: G * k for i, k in private.items()})
+    context = package.context()
+    expected_hash = hashlib.sha256(data).hexdigest()
     rows = []
     for pair in itertools.combinations(shares, 2):
         submissions = []
         proof_ms = 0
         for s in pair:
-            nonce = verifier.issue(s.index, package.context())
-            proof, elapsed = timed(lambda: prove(private[s.index], nonce, package.context(), s.index))
+            nonce = verifier.issue(s.index, context)
+            proof, elapsed = timed(lambda: prove(private[s.index], nonce, context, s.index))
             proof_ms += elapsed
             submissions.append((s, nonce, proof))
         restored, elapsed = timed(lambda: verifier.authenticate_and_recover(package, submissions))
-        rows.append({'parties': [s.index for s in pair], 'correct': restored == data,
+        correct = restored == data
+        restored_hash = hashlib.sha256(restored).hexdigest()
+        if correct and on_recovered is not None:
+            on_recovered(pair, restored)
+        del restored
+        rows.append({'parties': [s.index for s in pair], 'correct': correct, 'recovered_sha256': restored_hash,
                      'proof_generation_ms': proof_ms, 'verified_recovery_ms': elapsed})
     rejection_timings = []
     def rejected(action):
@@ -40,21 +48,28 @@ def run(data):
         finally:
             rejection_timings.append((time.perf_counter_ns() - start) / 1e6)
         return False
-    nonce = verifier.issue(1, package.context())
-    proof = prove(private[1], nonce, package.context(), 1)
-    accepted = verifier.verify(1, package.context(), nonce, proof)
-    replay_rejected, replay_ms = timed(lambda: accepted and not verifier.verify(1, package.context(), nonce, proof))
+    nonce = verifier.issue(1, context)
+    proof = prove(private[1], nonce, context, 1)
+    accepted = verifier.verify(1, context, nonce, proof)
+    replay_rejected, replay_ms = timed(lambda: accepted and not verifier.verify(1, context, nonce, proof))
     attacks = {
         'single_share': rejected(lambda: recover(package, shares[:1])),
         'tampered_share': rejected(lambda: recover(package, [Share(1, shares[0].value ^ 1), shares[1]])),
         'duplicate_share': rejected(lambda: recover(package, [shares[0], shares[0]])),
-        'tampered_ciphertext': rejected(lambda: recover(replace(package, tag=bytes([package.tag[0] ^ 1]) + package.tag[1:]), shares[:2])),
+        'tampered_tag': rejected(lambda: recover(replace(package, tag=bytes([package.tag[0] ^ 1]) + package.tag[1:]), shares[:2])),
         'proof_replay': replay_rejected,
     }
-    assert all(r['correct'] for r in rows) and all(attacks.values())
-    return package, {'input_bytes': len(data), 'encryption_ms': encryption_ms,
+    if package.ciphertext:
+        changed = bytes([package.ciphertext[0] ^ 1]) + package.ciphertext[1:]
+        attacks['tampered_ciphertext'] = rejected(lambda: recover(replace(package, ciphertext=changed), shares[:2]))
+        del changed
+    attack_times = dict(zip([name for name in attacks if name != 'proof_replay'], rejection_timings))
+    attack_times['proof_replay'] = replay_ms
+    if not all(r['correct'] for r in rows) or not all(attacks.values()):
+        raise RuntimeError('experiment validation failed')
+    return package, {'input_bytes': len(data), 'input_sha256': expected_hash, 'encryption_ms': encryption_ms,
                      'pairs': rows, 'attacks_rejected': attacks,
-                     'attack_check_ms': dict(zip(attacks, rejection_timings + [replay_ms])),
+                     'attack_check_ms': attack_times,
                      'evidence_bytes': {'share': 33, 'feldman_commitments': 130,
                                         'identity_public_key': 65, 'schnorr_proof': len(proof.wire_bytes()),
                                         'challenge_nonce': 32, 'file_context_hash': 32},

@@ -50,7 +50,10 @@ class Package:
                        'commitments': [point_bytes(p).hex() for p in self.commitments]})
 
     def context(self):
-        return hashlib.sha256(self.metadata() + self.nonce + self.ciphertext + self.tag).digest()
+        digest = hashlib.sha256()
+        for part in (self.metadata(), self.nonce, self.ciphertext, self.tag):
+            digest.update(part)
+        return digest.digest()
 
 
 def encrypt(data):
@@ -134,8 +137,9 @@ class Verifier:
 
     def authenticate_and_recover(self, package, submissions):
         shares = []
+        context = package.context()
         for share, nonce, proof in submissions:
-            if not self.verify(share.index, package.context(), nonce, proof):
+            if not self.verify(share.index, context, nonce, proof):
                 raise ValueError('identity proof rejected')
             shares.append(share)
         return recover(package, shares)
