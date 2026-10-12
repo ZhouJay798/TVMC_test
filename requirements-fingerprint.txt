@@ -1,0 +1,11 @@
+-r requirements.txt
+torch==2.6.0
+transformers==4.51.3
+peft==0.15.2
+huggingface-hub==0.30.2
+safetensors==0.5.3
+psutil==7.0.0
+pyarrow==19.0.1
+accelerate==1.15.0
+numpy==2.5.4
+sympy==1.13.1

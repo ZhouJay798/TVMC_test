@@ -1,8 +1,29 @@
-# TVMC：SmolLM2-135M 权重加密与 2-of-5 可验证秘密共享
+# TVMC：SmolLM2 权重保护与 Tardos LoRA 指纹
 
 Python 3.12 本地实验项目，验证任意两方恢复与异常拒绝，输出耗时和证据大小。
 
 详细操作步骤（Windows / macOS / Linux）、结果解读和常见问题见 [本地实验操作说明](docs/LOCAL_EXPERIMENT.md)。
+
+## 新增：Tardos 模型指纹（Windows CPU 可运行）
+
+[详细部署、算法与指标说明](docs/TARDOS_FINGERPRINT.md)。从同一固定 SmolLM2 基座独立训练 3 个 LoRA 会话，实际生成秘密触发响应，与未标记基座比较 BER、擦除率、Tardos 会话分数和 WikiText-2 测试困惑度，并记录训练耗时与进程内存。
+
+Windows PowerShell，在项目根目录：
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu
+.\.venv\Scripts\python.exe -m pip install -r requirements-fingerprint.txt
+.\.venv\Scripts\python.exe fingerprint.py prepare
+.\.venv\Scripts\python.exe fingerprint.py run --device cpu --output artifacts/tardos-run-1
+```
+
+训练后独立读取：
+
+```powershell
+.\.venv\Scripts\python.exe fingerprint.py read --run-dir artifacts/tardos-run-1 --output artifacts/tardos-readback-1.json
+```
+
+云端已通过 20 项基础测试和 3 项小模型 LoRA 测试；真实 SmolLM2 CPU 多会话实验结果见 [实测记录](docs/TARDOS_RESULTS.md)。秘密码本及训练输出仅保存在被忽略的本地目录。最高分会话是实验性候选归属，未提供抗合谋保证或经校准的误报阈值。
 
 ## SmolLM2-135M 基座权重实验
 
@@ -13,7 +34,7 @@ Python 3.12 本地实验项目，验证任意两方恢复与异常拒绝，输�
 .venv/bin/python smollm2.py run --output artifacts/smollm2-run-1
 ```
 
-下载官方基座权重并校验固定版本、大小与 SHA-256。枚举十种两方恢复，检查六项攻击拒绝，保存 `report.json`、二进制密文及 `recovered.safetensors`，可手动比对恢复权重。模型用于被加密文件，不运行推理。真实模型下载在当前云环境被网络代理 403 阻断，尚未完成真实权重验证；15 项离线测试已通过。
+下载官方基座权重并校验固定版本、大小与 SHA-256。枚举十种两方恢复，检查六项攻击拒绝，保存 `report.json`、二进制密文及 `recovered.safetensors`，可手动比对恢复权重。模型用于被加密文件，不运行推理。若旧下载入口遇到重定向问题，可使用新的 `fingerprint.py prepare`，它通过官方 Hub 下载并复核相同权重的 SHA-256。
 
 ## 通用小文件演示
 
